@@ -3,8 +3,6 @@
 #include <string>
 
 #include <bits/stdc++.h>
-#include <boost/algorithm/string.hpp>
-
 
 class City {     // The class
   public:       // Access specifier
@@ -41,10 +39,10 @@ class Route {
         std::random_shuffle (ordering.begin(), ordering.end());
     }
 
-    Route(int n, std::vector<City> *cities_list, std::vector<int> ordering_cities){
+    Route(int n, std::vector<City> *cities_list, std::vector<int>::iterator ordering_cities){
         N = n;
         cities = cities_list;
-        ordering = ordering_cities;
+        ordering.assign(ordering_cities, ordering_cities + N);
     }
 
     float totalDistance(){ //@TODO save values in a symmetric matrix??? 
@@ -62,34 +60,32 @@ class Route {
     }
 
     Route PMX(Route mating_route, int crossing_point){
-        std::vector<int> new_trajectory;
+        std::vector<int> child_ordering;
+        child_ordering.reserve(N);
 
-        std::vector<int>::iterator X_begin = ordering.begin(); 
-        std::vector<int>::iterator X_cross = ordering.begin() + crossing_point;
-        std::vector<int>::iterator X_end = ordering.end();
+        std::vector<int>::iterator current_begin = ordering.begin();
+        std::vector<int>::iterator partner_begin = mating_route.ordering.begin();
+        std::vector<int>::iterator child_begin = child_ordering.begin();
+        std::vector<int>::iterator chid_end = child_begin + N;
 
-        std::vector<int>::iterator Y_begin = mating_route.ordering.begin();
-        std::vector<int>::iterator Y_cross = Y_begin + crossing_point;
-        std::vector<int>::iterator Y_end = mating_route.ordering.end();
-        
-
+        for(int i = 0; i < N; i++){
+            child_ordering[i] = ordering[i];
+        }
+    
         for (int i = 0; i < crossing_point; i++){
-            new_trajectory.push_back(ordering[i]);
-        }
-        
-        for(int i = crossing_point; i < N; i++){
-            int mate_gene = *(Y_begin + i);
-            //new_trajectory[i] = mate_gene;
-
-            auto correspondant_idx = std::find(X_begin, X_cross, mate_gene);
-            if (correspondant_idx != X_cross){
-                // That +1 is causing problems, but it's not the only one.
-                mate_gene = *(correspondant_idx - X_begin + Y_begin + 1);
+            int mate_gene = *(partner_begin + i);
+         
+            // If mutating gene is already present in 
+            auto correspondant_idx = std::find(child_begin + i, chid_end, mate_gene);
+            if (correspondant_idx != chid_end){
+                child_ordering[(correspondant_idx - child_begin)] = *(child_begin + i);
             } 
-            new_trajectory.push_back(mate_gene);
+
+            child_ordering[i] = mate_gene;
         }
-      
-        return Route(N, cities, new_trajectory);
+
+        Route r = Route(N, cities, child_ordering.begin());
+        return r;
     }       
 
     void printCitiesId () { 
@@ -137,11 +133,8 @@ class Nation {       // The class
                             addCity(City(std::stoi(raw_line[0]), std::stof(raw_line[1]), std::stof(raw_line[2])));
                             raw_line.clear();
                         }
-
                     }
-                    
                 }
-
             }
         } else {
             std::cout << "Couldn't open file\n";
@@ -171,8 +164,6 @@ class Nation {       // The class
 int main (int argc, char* argv[]){
     // This code allows to read the .tsp files skipping the fixed-lenght headers (7 lines).
     // The remaining lines just corrresponds to the coordinates of the cities in the nation.
-
-
     std::string filename = argc > 1 ? argv[1] : "wi29.tsp";
     std::cout << filename << '\n';
     
@@ -191,6 +182,8 @@ int main (int argc, char* argv[]){
     std::cout << "++++++++++++++++++++++++++++++++++++++++" << '\n';
     route2.printCitiesId();
     std::cout << "========================================" << '\n';
-    (route1.PMX(route2, 8)).printCitiesId();
+    Route child = (route2.PMX(route1, 8));
+    child.printCitiesId();
+    //std::cout << child.ordering[0] <<'\n';
     return 0;      
 }
