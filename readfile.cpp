@@ -16,7 +16,7 @@ class City {     // The class
       y = longitude;
     }
 
-    int distance(City dest) { 
+    float distance(City dest) { 
         return pow(pow(x - dest.x, 2) + pow(y - dest.y, 2), 0.5);
     }
 };
@@ -45,25 +45,29 @@ class Route {
         ordering.assign(ordering_cities, ordering_cities + N);
     }
 
-    float totalDistance(){ //@TODO save values in a symmetric matrix??? 
+    float totalDistance(){ //@TODO save values in an upper triangular (half of a symmetric) matrix??? 
         distance = 0;
         for(int i=0; i < N; i++){
             float delta_d = cities->at(ordering[i]).distance(cities->at(ordering[(i+1)%N]));
             distance = distance + delta_d;
 
-            std::cout << (cities->at(ordering[i])).id ;
-            std::cout << " --> ";
-            std::cout << (cities->at(ordering[(i+1)%N])).id ;
-            std::cout << " == " <<  delta_d << '\n';
+            //std::cout << (cities->at(ordering[i])).id ;
+            //std::cout << " --> ";
+            //std::cout << (cities->at(ordering[(i+1)%N])).id ;
+            //std::cout << " == " <<  delta_d << '\n';
         }
+
         return distance;
     }
 
     Route PMX(Route mating_route, int crossing_point){
+        if (crossing_point == -1){
+            crossing_point = rand()%N;
+        }
+        
         std::vector<int> child_ordering;
         child_ordering.reserve(N);
 
-        std::vector<int>::iterator current_begin = ordering.begin();
         std::vector<int>::iterator partner_begin = mating_route.ordering.begin();
         std::vector<int>::iterator child_begin = child_ordering.begin();
         std::vector<int>::iterator chid_end = child_begin + N;
@@ -110,7 +114,6 @@ class Nation {       // The class
 
         int point_pos = filename.find(".tsp");
         N = std::stoi(filename.replace(point_pos, 4, "").replace(0, 2, ""));
-        // std::cout << N << '\n';
 
         if ( myfile.is_open() ) {
             int skipline = 7;
@@ -160,6 +163,64 @@ class Nation {       // The class
     }
 };
 
+class Population { 
+    private:
+        bool isOrdered = false;
+        std::vector<float> probabilities;
+        std::discrete_distribution<> picker;
+        std::random_device rd;
+        std::mt19937 gen = std::mt19937(rd());
+
+    public: 
+        int K; 
+        //Nation *reference_nation;
+        std::vector<Route> routes;
+    
+        Population(int k, Nation *nation){ 
+            K = k;
+
+            for (int i = 0; i< K; i++){
+                Route random_route = (*nation).randomRoute();
+                // ensure the distance is computed. 
+                routes.push_back(random_route);
+                probabilities.push_back(1/K);
+            } 
+
+            //reference_nation = nation;
+        }
+
+        void rank_all() { 
+            float totalInverseDistance = 0;
+            for (int i = 0; i< K; i++){
+                totalInverseDistance += 1/routes[i].totalDistance(); // This also updates the distance value for the route object. 
+            }
+            
+            std::sort(routes.begin(), routes.begin() + K, [](Route a, Route b){ return a.distance > b.distance; });
+
+            for (int i = 0; i< K; i++){
+                probabilities[i] = (1/routes[i].distance)/totalInverseDistance;
+            }
+
+            picker = std::discrete_distribution<>(probabilities.begin(), probabilities.end());
+        }
+
+        Route pickRoute(){ 
+            return routes[picker(gen)]; 
+        }
+
+        void evolve(){ 
+            rank_all();
+            for (int i = 0; i< K; i++) { 
+                if(rand()%2 == 1){
+                    routes[i] = routes[i].PMX(pickRoute(), -1);
+                } else { 
+                    routes[i] = pickRoute().PMX(routes[i], -1);
+                }
+            }
+            std::cout <<"Evolved" <<'\n';
+        }
+};
+
 
 int main (int argc, char* argv[]){
     // This code allows to read the .tsp files skipping the fixed-lenght headers (7 lines).
@@ -167,23 +228,44 @@ int main (int argc, char* argv[]){
     std::string filename = argc > 1 ? argv[1] : "wi29.tsp";
     std::cout << filename << '\n';
     
-    Nation nation = Nation(filename);    
+    int epochs = 500;
 
-    //nation.printCitiesId();
-    //std::cout << nation.N << '\n';
-    //std::cout << nation.getCity(1).distance(nation.getCity(9))  << '\n';
+    Nation nation = Nation(filename);    
+    Route best_route = nation.randomRoute();
+
+    Population genome(100, &nation);
+    for(int i = 0; i < epochs; i++ ){ 
+        genome.evolve();
+        genome.rank_all();
+        best_route = genome.routes[0];
+        std::cout << "Epoch." << i << ")  Best Distance:";
+        std::cout << best_route.totalDistance() << '\n';
+    }
+    
+    best_route.printCitiesId();
+
+    //lazyRouteTest(nation);
+
+    return 0;      
+}
+
+void lazyRouteTest(Nation nation){ 
+    nation.printCitiesId();
+
+    std::cout << nation.N << '\n';
+    std::cout << nation.getCity(1).distance(nation.getCity(9))  << '\n';
     std::cout << nation.randomRoute().totalDistance() << '\n';
-    //std::cout << (c->at(0)).x << '\n';
+
     Route route1 =  nation.randomRoute();
     Route route2 =  nation.randomRoute();
     
-
     route1.printCitiesId();
     std::cout << "++++++++++++++++++++++++++++++++++++++++" << '\n';
     route2.printCitiesId();
     std::cout << "========================================" << '\n';
+
     Route child = (route2.PMX(route1, 8));
     child.printCitiesId();
-    //std::cout << child.ordering[0] <<'\n';
-    return 0;      
+    std::cout << child.ordering[0] <<'\n';
+
 }
