@@ -1,7 +1,6 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-
 #include <bits/stdc++.h>
 
 class City {     // The class
@@ -27,6 +26,8 @@ class Route {
     std::vector<City> *cities;
     std::vector<int> ordering;
     float distance = 0;
+
+    Route() = default;
 
     Route(int n, std::vector<City> *cities_list){
         N = n;
@@ -90,7 +91,22 @@ class Route {
 
         Route r = Route(N, cities, child_ordering.begin());
         return r;
-    }       
+    }      
+
+    void mutate(){
+        // pick a random element
+        int first = rand () % N;
+        int second = rand () % (N-1);
+
+        if (second == first){
+            ++second;
+        }  
+
+        int copy = ordering[first];
+
+        ordering[first] = ordering[second];
+        ordering[second] = copy;
+    } 
 
     void printCitiesId () { 
         for(unsigned int i = 0; i < N; i++){
@@ -172,12 +188,13 @@ class Population {
         std::mt19937 gen = std::mt19937(rd());
 
     public: 
-        int K; 
-        //Nation *reference_nation;
+        int K; // Number of genes, a.k.a. routes 
+        Route bestRoute;
         std::vector<Route> routes;
     
         Population(int k, Nation *nation){ 
             K = k;
+
 
             for (int i = 0; i< K; i++){
                 Route random_route = (*nation).randomRoute();
@@ -186,7 +203,9 @@ class Population {
                 probabilities.push_back(1/K);
             } 
 
-            //reference_nation = nation;
+            rank_all();
+            bestRoute = routes[0];
+
         }
 
         void rank_all() { 
@@ -195,7 +214,7 @@ class Population {
                 totalInverseDistance += 1/routes[i].totalDistance(); // This also updates the distance value for the route object. 
             }
             
-            std::sort(routes.begin(), routes.begin() + K, [](Route a, Route b){ return a.distance > b.distance; });
+            std::sort(routes.begin(), routes.begin() + K, [](Route a, Route b){ return a.distance > b.distance; });  //bizarre cpp lambda function syntax
 
             for (int i = 0; i< K; i++){
                 probabilities[i] = (1/routes[i].distance)/totalInverseDistance;
@@ -208,17 +227,36 @@ class Population {
             return routes[picker(gen)]; 
         }
 
-        void evolve(){ 
-            rank_all();
-            for (int i = 0; i< K; i++) { 
-                if(rand()%2 == 1){
+        void evolve(float epsilon_mutation = 0){ 
+            for (int i = 0; i < K; i++) { 
+                // Randomly choose which PMX ordering to choose
+                if(rand() % 2 == 1){
                     routes[i] = routes[i].PMX(pickRoute(), -1);
                 } else { 
                     routes[i] = pickRoute().PMX(routes[i], -1);
                 }
+
+                // Randomly check if the mutation should happen or not. 
+                if ( epsilon_mutation != 0 && (rand() % int(1/epsilon_mutation)) == 1){ 
+                    routes[i].mutate();
+                }
             }
+
+            rank_all();
+
+            if (routes[0].totalDistance() < bestRoute.totalDistance()){ 
+                bestRoute.distance = routes[0].distance;
+                bestRoute.ordering = routes[0].ordering;
+            } 
+            // else { 
+            //    routes[0].distance = bestRoute.distance;
+            //    routes[0].ordering = bestRoute.ordering;
+            // }
+
             std::cout <<"Evolved" <<'\n';
         }
+
+    
 };
 
 
@@ -233,19 +271,16 @@ int main (int argc, char* argv[]){
     Nation nation = Nation(filename);    
     Route best_route = nation.randomRoute();
 
-    Population genome(100, &nation);
+    Population genome(2500, &nation);
+
     for(int i = 0; i < epochs; i++ ){ 
-        genome.evolve();
-        genome.rank_all();
-        best_route = genome.routes[0];
+        genome.evolve(0.0001);
+        best_route = genome.bestRoute;
         std::cout << "Epoch." << i << ")  Best Distance:";
         std::cout << best_route.totalDistance() << '\n';
     }
     
     best_route.printCitiesId();
-
-    //lazyRouteTest(nation);
-
     return 0;      
 }
 
@@ -267,5 +302,4 @@ void lazyRouteTest(Nation nation){
     Route child = (route2.PMX(route1, 8));
     child.printCitiesId();
     std::cout << child.ordering[0] <<'\n';
-
 }
