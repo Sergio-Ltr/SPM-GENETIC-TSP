@@ -186,6 +186,7 @@ class Population {
         std::discrete_distribution<> picker;
         std::random_device rd;
         std::mt19937 gen = std::mt19937(rd());
+        int N;
 
     public: 
         int K; // Number of genes, a.k.a. routes 
@@ -194,7 +195,7 @@ class Population {
     
         Population(int k, Nation *nation){ 
             K = k;
-
+            N = nation->N;
 
             for (int i = 0; i< K; i++){
                 Route random_route = (*nation).randomRoute();
@@ -229,11 +230,12 @@ class Population {
 
         void evolve(float epsilon_mutation = 0){ 
             for (int i = 0; i < K; i++) { 
+                int crossing_point = rand()% N;//rand()%2 ==1 ? rand()% N : -1;
                 // Randomly choose which PMX ordering to choose
                 if(rand() % 2 == 1){
-                    routes[i] = routes[i].PMX(pickRoute(), -1);
+                    routes[i] = routes[i].PMX(pickRoute(), crossing_point);
                 } else { 
-                    routes[i] = pickRoute().PMX(routes[i], -1);
+                    routes[i] = pickRoute().PMX(routes[i], crossing_point);
                 }
 
                 // Randomly check if the mutation should happen or not. 
