@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <bits/stdc++.h>
+#include "utimer.hpp"
 
 class City {     // The class
   public:       // Access specifier
@@ -275,6 +276,7 @@ int main (int argc, char* argv[]){
 
     Population genome(2500, &nation);
 
+    utimer all("ALL: ");
     for(int i = 0; i < epochs; i++ ){ 
         genome.evolve(0.0001);
         best_route = genome.bestRoute;
