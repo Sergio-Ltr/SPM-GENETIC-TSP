@@ -328,10 +328,12 @@ int main (int argc, char* argv[]){
     print_times = verbosity == -1 || verbosity == 1;
 
     // Last param to decide wether to save logs on a file or just use the terminal. 
-    bool redirect_logs = argc > 5; 
+    bool redirect_logs = argc > 6; 
+    if (redirect_logs && atoi(argv[6]) == -1){ 
+        subtask_time_analysis = true;
+    }
 
     if (redirect_logs){
-
         std::time_t ct = std::time(0);
         //TODO include a log folder and a t= 
         std::stringstream sstm;

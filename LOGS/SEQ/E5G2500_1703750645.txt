@@ -1,0 +1,11 @@
+Evolution (Breed + Mutate):  computed in            6166 usec 
+Ranking (Sort + Normalize):  computed in           17952 usec 
+Evolution (Breed + Mutate):  computed in            6336 usec 
+Ranking (Sort + Normalize):  computed in           16766 usec 
+Evolution (Breed + Mutate):  computed in            6412 usec 
+Ranking (Sort + Normalize):  computed in           18895 usec 
+Evolution (Breed + Mutate):  computed in            7812 usec 
+Ranking (Sort + Normalize):  computed in           16781 usec 
+Evolution (Breed + Mutate):  computed in            6493 usec 
+Ranking (Sort + Normalize):  computed in           16942 usec 
+Overall execution time:  computed in          120974 usec 
