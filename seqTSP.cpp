@@ -7,6 +7,7 @@
 // Global verobsity variables.
 bool print_logs = false;
 bool print_times = false;
+bool subtask_time_analysis = false;
 
 class City {     // The class
   public:       // Access specifier
@@ -21,10 +22,6 @@ class City {     // The class
     }
 
     float distance(City dest) { 
-        // if(print_times){
-        //      utimer single_euc_dist("Single Euclidean distance: ");
-        // }
-
         return pow(pow(x - dest.x, 2) + pow(y - dest.y, 2), 0.5);
     }
 };
@@ -55,23 +52,27 @@ class Route {
         ordering.assign(ordering_cities, ordering_cities + N);
     }
 
+
     float compute_total_distance(){ 
-        if(print_times){
-            utimer full_route_distance("Full route distance: ");
-        }
-
         distance = 0;
-        for(int i=0; i < N; i++){
-            float delta_d = cities->at(ordering[i]).distance(cities->at(ordering[(i+1)%N]));
-            distance = distance + delta_d;
+        if(print_times && subtask_time_analysis){
+            utimer full_route_distance("Full route distance: ");
+            for(int i=0; i < N; i++){
+                float delta_d = cities->at(ordering[i]).distance(cities->at(ordering[(i+1)%N]));
+                distance = distance + delta_d;
+            }
+        } else { 
+            for(int i=0; i < N; i++){
+                float delta_d = cities->at(ordering[i]).distance(cities->at(ordering[(i+1)%N]));
+                distance = distance + delta_d;
+            }
         }
-
         return distance;
         //@TODO save values in an upper triangular (half of a symmetric) matrix??? 
     }
 
     Route PMX(Route mating_route, int crossing_point){
-        if(print_times){
+        if(print_times && subtask_time_analysis){
             utimer PMX("Breeding (PMX): ");
         }
         if (crossing_point == -1){
@@ -106,10 +107,6 @@ class Route {
     }      
 
     void mutate(){
-        if(print_times){
-            utimer mutationTime("Mutation time:");
-        }
-
         int first = rand () % N;
         int second = rand () % (N-1);
 
@@ -190,8 +187,9 @@ class Nation {       // The class
     }
 
     Route random_route() { 
-        if(print_times){
+        if(print_times && subtask_time_analysis){
             utimer random_route_generation("Random route generation: ");
+            return Route(N, &cities);
         }
 
         return Route(N, &cities);
@@ -229,9 +227,6 @@ class Population {
         }
 
         void rank_all() { 
-            if (print_times){
-                utimer ranking("Ranking (Sort + Normalize): ");
-            }
             float total_inverse_distance = 0;
             for (int i = 0; i< K; i++){
                 total_inverse_distance += 1/routes[i].compute_total_distance(); // This also updates the distance value for the route object. 
@@ -248,17 +243,16 @@ class Population {
         }
 
         Route pick_route(){ 
-            if (print_times){ 
-                utimer pick_route( "Partner pickup: ");
+            if (print_times && subtask_time_analysis){ 
+                utimer pick_route("Partner pickup: ");
+                return routes[picker(gen)]; 
+            } else { 
+                return routes[picker(gen)]; 
             }
-            return routes[picker(gen)]; 
+           
         }
 
-        void evolve(float mutation_rate = 0){ 
-            if (print_times){ 
-                utimer evolution("Single evolution loop (including ranking):");
-            }
-
+        void evolve_once(float mutation_rate = 0){ 
             for (int i = 0; i < K; i++) { 
                 int crossing_point = rand()% N;//rand()%2 ==1 ? rand()% N : -1;
                 // Randomly choose which PMX ordering to choose
@@ -270,17 +264,42 @@ class Population {
 
                 // Randomly check if the mutation should happen or not. 
                 if ( mutation_rate != 0 && (rand() % int(1/mutation_rate)) == 1){ 
-                    routes[i].mutate();
+                    if(print_times && subtask_time_analysis){
+                        utimer mutationTime("Mutation time:");
+                        routes[i].mutate();
+                    } else { 
+                        routes[i].mutate();
+                    }
                 }
             }
+        }
 
-            rank_all();
+        void evolve(int epochs, float mutation_rate){ 
+            for(int i = 0; i < epochs; i++ ){ 
+                if (print_times){
+                    utimer ranking("Evolution (Breed + Mutate): ");
+                    evolve_once(mutation_rate);
+                } else { 
+                    evolve_once(mutation_rate);
+                }
+                if (print_times){
+                    utimer ranking("Ranking (Sort + Normalize): ");
+                    rank_all();
+                } else { 
+                    rank_all();
+                }
 
-            // Hold a copy of the best route ever found, in case evoltuion cause a distance increasement.
-            if (routes[0].compute_total_distance() < best_route.compute_total_distance()){ 
-                best_route.distance = routes[0].distance;
-                best_route.ordering = routes[0].ordering;
-            } 
+                // Hold a copy of the best route ever found, in case evoltuion cause a distance increasement.
+                if (routes[0].compute_total_distance() < best_route.compute_total_distance()){ 
+                    best_route.distance = routes[0].distance;
+                    best_route.ordering = routes[0].ordering;
+                } 
+
+                if(print_logs){ 
+                    std::cout << "Epoch." << i << ")  Best Distance:";
+                    std::cout << best_route.compute_total_distance() << '\n';
+                }
+        }
         }
 };
 
@@ -323,27 +342,19 @@ int main (int argc, char* argv[]){
     }
     
     Nation nation = Nation(filename);    
-    Route best_route = nation.random_route();
 
     Population genome(genes_num, &nation);
 
     if (print_times){
         utimer overall("Overall execution time: ");
+        genome.evolve(epochs, mutation_rate);
+    } else { 
+        genome.evolve(epochs, mutation_rate);
     }
-    
-    for(int i = 0; i < epochs; i++ ){ 
-        genome.evolve(mutation_rate);
-        best_route = genome.best_route;
 
-        if(print_logs){ 
-            std::cout << "Epoch." << i << ")  Best Distance:";
-            std::cout << best_route.compute_total_distance() << '\n';
-        }
+    if(print_logs){ 
+        genome.best_route.print_cities_ids();
     }
-    
-    best_route.print_cities_ids();
-    
-    return 0;      
 }
 
 void lazyRouteTest(Nation nation){ 
@@ -364,4 +375,10 @@ void lazyRouteTest(Nation nation){
     Route child = (route2.PMX(route1, 8));
     child.print_cities_ids();
     std::cout << child.ordering[0] <<'\n';
+}
+
+void time_tests(){ 
+    if (print_times ){ 
+        utimer evolution("Single evolution loop (including ranking):");
+    }
 }
