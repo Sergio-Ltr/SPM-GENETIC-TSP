@@ -1,0 +1,39 @@
+Epoch.0)  Best Distance:117594
+Epoch.1)  Best Distance:109378
+Epoch.2)  Best Distance:109378
+Epoch.3)  Best Distance:109378
+Epoch.4)  Best Distance:109378
+Epoch.5)  Best Distance:109378
+Epoch.6)  Best Distance:109378
+Epoch.7)  Best Distance:109378
+Epoch.8)  Best Distance:109378
+Epoch.9)  Best Distance:109378
+2
+10
+25
+20
+19
+4
+16
+22
+27
+8
+24
+5
+6
+13
+17
+7
+0
+9
+1
+28
+18
+11
+21
+15
+23
+3
+26
+12
+14
