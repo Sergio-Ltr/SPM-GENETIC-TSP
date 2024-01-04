@@ -1,6 +1,8 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <thread>
+#include <mutex>
 #include <bits/stdc++.h>
 #include "utimer.hpp"
 
@@ -215,15 +217,32 @@ class Population {
             N = nation->N;
 
             for (int i = 0; i< K; i++){
-                Route random_route = (*nation).random_route();
-                // ensure the distance is computed. 
-                routes.push_back(random_route);
-                probabilities.push_back(1/K);
+                // Use threads to generate the K initial routes contemporarely. 
+                // Assume numThreads == K.
+                std::cout << "Instantiating the map threads" << "\n";
+                std::mutex mutex;
+
+                std::vector<std::thread> mapThreads;
+                for (size_t i = 0; i < K; ++i) {
+                    // mapThreads.emplace_back([=, &mutex]() {
+                     mapThreads.emplace_back([&mutex]() {
+                        std::lock_guard<std::mutex> lock(mutex);
+                        std::cout << "Trying using threads to initialize" << "\n";
+                        //std::lock_guard<std::mutex> lock(mutex);
+                        //Route random_route = (*nation).random_route();
+                        //routes.push_back(random_route);
+                        //probabilities.push_back(1/K);   
+                        std::cout << "End" << "\n";
+                    });
+                }
+                // Wait for all Map threads to finish
+                for (auto& thread : mapThreads) {
+                    thread.join();
+                }
             } 
 
             rank_all();
-            best_route = routes[0];
-
+            best_route = routes[0]; 
         }
 
         void rank_all() { 
@@ -333,17 +352,22 @@ int main (int argc, char* argv[]){
         subtask_time_analysis = true;
     }
 
+    std::cout<< "Nation not created" << "\n";  
+
     if (redirect_logs){
         std::time_t ct = std::time(0);
         //TODO include a log folder and a t= 
         std::stringstream sstm;
-        sstm << "LOGS/SEQ/E"<< epochs << "G"<< genes_num << "_" << ct << ".txt";
+        sstm << "LOGS/PAR/E"<< epochs << "G"<< genes_num << "_" << ct << ".txt";
         std::string logfile_path = sstm.str(); 
         std::cout << "Trying redirecting the logs to :" << logfile_path << "\n";
+        std::cout<< "Nation not created" << "\n";  
         std::freopen(logfile_path.c_str(),"w",stdout);
     }
-    
-    Nation nation = Nation(filename);    
+    std::cout<< "Nation not created" << "\n";  
+    Nation nation = Nation(filename); 
+
+    std::cout<< "Nation created" << "\n";  
 
     Population genome(genes_num, &nation);
 
