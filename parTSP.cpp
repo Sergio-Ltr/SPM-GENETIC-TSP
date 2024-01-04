@@ -280,26 +280,38 @@ class Population {
 
         void evolve_once(float mutation_rate = 0){ 
             std::vector<std::thread> mapThreads;
-            for (int i = 0; i< num_workers; i++){
-                mapThreads.emplace_back([=](){
-                    for (int i = 0; i < K/num_workers; i++) { 
+            std::mutex mutex;
+            for (int i = 0; i < num_workers; i++){
+                mapThreads.emplace_back([=, &mutex](){
+                    for (int j = 0; j < K/num_workers; j++) { 
                         int crossing_point = rand()% N;//rand()%2 ==1 ? rand()% N : -1;
                         // Randomly choose which PMX ordering to choose
+                        int route_idx = i*K/num_workers + j;
+
+                        mutex.lock();
+                        Route current_route = routes[route_idx];
+                        Route mate_route = pick_route();
+                        mutex.unlock();
+
+                        Route new_route;
+                        
                         if(rand() % 2 == 1){
-                            routes[i] = routes[i].PMX(pick_route(), crossing_point);
+                            new_route = current_route.PMX(mate_route, crossing_point);
                         } else { 
-                            routes[i] = pick_route().PMX(routes[i], crossing_point);
+                            new_route = mate_route.PMX(current_route, crossing_point);
                         }
 
                         // Randomly check if the mutation should happen or not. 
                         if ( mutation_rate != 0 && (rand() % int(1/mutation_rate)) == 1){ 
                             if(print_times && subtask_time_analysis){
                                 utimer mutationTime("Mutation time:");
-                                routes[i].mutate();
+                                new_route.mutate();
                             } else { 
-                                routes[i].mutate();
+                                new_route.mutate();
                             }
                         }
+
+                        routes[route_idx] = new_route;
                     }
                 });
             }
