@@ -11,6 +11,8 @@ bool print_logs = false;
 bool print_times = false;
 bool subtask_time_analysis = false;
 
+int num_workers = 1;
+
 class City {     // The class
   public:       // Access specifier
     int id;    // Index in the .tsp file
@@ -216,35 +218,37 @@ class Population {
             K = k;
             N = nation->N;
 
-            for (int i = 0; i< K; i++){
+            std::mutex mutex;
+            std::vector<std::thread> mapThreads;
+
+            std::vector<Route>* routed_pointer = &routes;
+            std::vector<float>* probabilities_pointer = &probabilities;
+            
+            for (int i = 0; i< num_workers; i++){
                 // Use threads to generate the K initial routes contemporarely. 
                 // Assume numThreads == K.
-                std::cout << "Instantiating the map threads" << "\n";
-                std::mutex mutex;
-
-                std::vector<std::thread> mapThreads;
-                for (size_t i = 0; i < K; ++i) {
-                    // mapThreads.emplace_back([=, &mutex]() {
-                     mapThreads.emplace_back([&mutex]() {
-                        std::lock_guard<std::mutex> lock(mutex);
-                        std::cout << "Trying using threads to initialize" << "\n";
-                        //std::lock_guard<std::mutex> lock(mutex);
-                        //Route random_route = (*nation).random_route();
-                        //routes.push_back(random_route);
-                        //probabilities.push_back(1/K);   
-                        std::cout << "End" << "\n";
-                    });
-                }
+                mapThreads.emplace_back([&nation, routed_pointer, k, &mutex]() {
+                    std::vector<Route> random_routes;
+                    for (int j = 0; j < k/num_workers; j++){
+                        random_routes.push_back((*nation).random_route());
+                    } 
+                    std::lock_guard<std::mutex> lock(mutex);
+                    for (int j = 0; j < k/num_workers; j++){
+                        (*routed_pointer).push_back(random_routes[j]);
+                    }
+                });
+            }
+            probabilities = std::vector<float>(K, 1/K);
                 // Wait for all Map threads to finish
-                for (auto& thread : mapThreads) {
-                    thread.join();
-                }
-            } 
+            for (auto& thread : mapThreads) {
+                thread.join();
+            }
 
             rank_all();
             best_route = routes[0]; 
         }
 
+        // The distance computation step should be parallelized within the evolution phase and not in the ranking/reduce pahse. 
         void rank_all() { 
             float total_inverse_distance = 0;
             for (int i = 0; i< K; i++){
@@ -253,6 +257,8 @@ class Population {
             
             std::sort(routes.begin(), routes.begin() + K, [](Route a, Route b){ return a.distance > b.distance; });  //bizarre cpp lambda function syntax
 
+            // This part can be "parallelized" being moved at the beginning of the evolution step and made individual for each worker, 
+            // considering K different distributions to avoid self picking. 
             for (int i = 0; i< K; i++){
                 probabilities[i] = (1/routes[i].distance)/total_inverse_distance;
             }
@@ -261,7 +267,8 @@ class Population {
             return;
         }
 
-        Route pick_route(){ 
+        Route pick_route(bool allow_self_pick = true){ 
+            //@TODO implement prevention from a route picking itself as partner
             if (print_times && subtask_time_analysis){ 
                 utimer pick_route("Partner pickup: ");
                 return routes[picker(gen)]; 
@@ -272,24 +279,32 @@ class Population {
         }
 
         void evolve_once(float mutation_rate = 0){ 
-            for (int i = 0; i < K; i++) { 
-                int crossing_point = rand()% N;//rand()%2 ==1 ? rand()% N : -1;
-                // Randomly choose which PMX ordering to choose
-                if(rand() % 2 == 1){
-                    routes[i] = routes[i].PMX(pick_route(), crossing_point);
-                } else { 
-                    routes[i] = pick_route().PMX(routes[i], crossing_point);
-                }
+            std::vector<std::thread> mapThreads;
+            for (int i = 0; i< num_workers; i++){
+                mapThreads.emplace_back([=](){
+                    for (int i = 0; i < K/num_workers; i++) { 
+                        int crossing_point = rand()% N;//rand()%2 ==1 ? rand()% N : -1;
+                        // Randomly choose which PMX ordering to choose
+                        if(rand() % 2 == 1){
+                            routes[i] = routes[i].PMX(pick_route(), crossing_point);
+                        } else { 
+                            routes[i] = pick_route().PMX(routes[i], crossing_point);
+                        }
 
-                // Randomly check if the mutation should happen or not. 
-                if ( mutation_rate != 0 && (rand() % int(1/mutation_rate)) == 1){ 
-                    if(print_times && subtask_time_analysis){
-                        utimer mutationTime("Mutation time:");
-                        routes[i].mutate();
-                    } else { 
-                        routes[i].mutate();
+                        // Randomly check if the mutation should happen or not. 
+                        if ( mutation_rate != 0 && (rand() % int(1/mutation_rate)) == 1){ 
+                            if(print_times && subtask_time_analysis){
+                                utimer mutationTime("Mutation time:");
+                                routes[i].mutate();
+                            } else { 
+                                routes[i].mutate();
+                            }
+                        }
                     }
-                }
+                });
+            }
+            for (auto& thread : mapThreads) {
+                thread.join();
             }
         }
 
@@ -318,7 +333,7 @@ class Population {
                     std::cout << "Epoch." << i << ")  Best Distance:";
                     std::cout << best_route.compute_total_distance() << '\n';
                 }
-        }
+            }
         }
 };
 
@@ -337,22 +352,23 @@ int main (int argc, char* argv[]){
     float mutation_rate = argc > 4 ? atof(argv[4]) : 0.0001;
     std::cout << "Mutaton Rate: " << mutation_rate <<"\n";
 
+    num_workers = argc > 5 ? atoi(argv[5]) : 10;
+    std::cout << "Number of worker: " << num_workers <<"\n";
+    std::cout << "Maximum number of workers possible: "<< std::thread::hardware_concurrency() << "\n"; 
     // Costumizable verbosity: 
     // 2 ( > 1) for logs only
     // 1 For logs and timers
     // 0 for no prints at all
     // -1 for timers only
-    int verbosity = argc > 5 ? atoi(argv[5]) : 0;
+    int verbosity = argc > 6 ? atoi(argv[6]) : 0;
     print_logs = verbosity > 0; 
     print_times = verbosity == -1 || verbosity == 1;
 
     // Last param to decide wether to save logs on a file or just use the terminal. 
-    bool redirect_logs = argc > 6; 
-    if (redirect_logs && atoi(argv[6]) == -1){ 
+    bool redirect_logs = argc > 7; 
+    if (redirect_logs && atoi(argv[7]) == -1){ 
         subtask_time_analysis = true;
     }
-
-    std::cout<< "Nation not created" << "\n";  
 
     if (redirect_logs){
         std::time_t ct = std::time(0);
@@ -361,25 +377,29 @@ int main (int argc, char* argv[]){
         sstm << "LOGS/PAR/E"<< epochs << "G"<< genes_num << "_" << ct << ".txt";
         std::string logfile_path = sstm.str(); 
         std::cout << "Trying redirecting the logs to :" << logfile_path << "\n";
-        std::cout<< "Nation not created" << "\n";  
         std::freopen(logfile_path.c_str(),"w",stdout);
     }
-    std::cout<< "Nation not created" << "\n";  
+
     Nation nation = Nation(filename); 
 
-    std::cout<< "Nation created" << "\n";  
+    Population* genome;
 
-    Population genome(genes_num, &nation);
+    if(print_times){
+        utimer initialization("Random routes initialization");
+        genome = new Population(genes_num, &nation);
+    } else {
+        genome = new Population(genes_num, &nation);
+    }    
 
     if (print_times){
         utimer overall("Overall execution time: ");
-        genome.evolve(epochs, mutation_rate);
+        (*genome).evolve(epochs, mutation_rate);
     } else { 
-        genome.evolve(epochs, mutation_rate);
+        (*genome).evolve(epochs, mutation_rate);
     }
 
     if(print_logs){ 
-        genome.best_route.print_cities_ids();
+        (*genome).best_route.print_cities_ids();
     }
 }
 

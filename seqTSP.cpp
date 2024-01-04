@@ -345,17 +345,24 @@ int main (int argc, char* argv[]){
     
     Nation nation = Nation(filename);    
 
-    Population genome(genes_num, &nation);
+    Population* genome;
+
+    if(print_times && subtask_time_analysis){
+        utimer initialization("Random routes initialization");
+        genome = new Population(genes_num, &nation);
+    } else {
+        genome = new Population(genes_num, &nation);
+    }    
 
     if (print_times){
-        utimer overall("Overall execution time: ");
-        genome.evolve(epochs, mutation_rate);
+        utimer overall("Overall execution: ");
+        (*genome).evolve(epochs, mutation_rate);
     } else { 
-        genome.evolve(epochs, mutation_rate);
+        (*genome).evolve(epochs, mutation_rate);
     }
 
     if(print_logs){ 
-        genome.best_route.print_cities_ids();
+        (*genome).best_route.print_cities_ids();
     }
 }
 
