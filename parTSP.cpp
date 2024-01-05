@@ -5,6 +5,8 @@
 #include <mutex>
 #include <bits/stdc++.h>
 #include "utimer.hpp"
+#include <condition_variable>
+#include <functional>
 
 // Global verobsity variables.
 bool print_logs = false;
@@ -12,6 +14,34 @@ bool print_times = false;
 bool subtask_time_analysis = false;
 
 int num_workers = 1;
+
+class Barrier {
+  public:
+    explicit Barrier(std::size_t count, std::function<void()> callback = nullptr)
+        : initial_count(count), count(count), callback(callback) {}
+
+    void wait() {
+        std::unique_lock<std::mutex> lock(mutex);
+        if (--count == 0) {
+            // Last thread to arrive resets the barrier and calls the callback
+            count = initial_count;
+            cv.notify_all();
+            if (callback) {
+                callback();
+            }
+        } else {
+            // Other threads wait
+            cv.wait(lock, [this] { return count == initial_count; });
+        }
+    }
+
+private:
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::size_t initial_count;
+    std::size_t count;
+    std::function<void()> callback;
+};
 
 class City {     // The class
   public:       // Access specifier
@@ -47,7 +77,7 @@ class Route {
             ordering.push_back(i);
         } 
 
-        std::random_shuffle (ordering.begin(), ordering.end());
+        std::random_shuffle(ordering.begin(), ordering.end());
     }
 
     Route(int n, std::vector<City> *cities_list, std::vector<int>::iterator ordering_cities){
@@ -202,151 +232,171 @@ class Nation {       // The class
 
 class Population { 
     private:
-        bool isOrdered = false;
         std::vector<float> probabilities;
         std::discrete_distribution<> picker;
         std::random_device rd;
         std::mt19937 gen = std::mt19937(rd());
+        float total_inverse_distance = 0;
         int N;
+
+        std::mutex mutex;
+
 
     public: 
         int K; // Number of genes, a.k.a. routes 
         Route best_route;
-        std::vector<Route> routes;
-    
+        std::vector<Route> current_gen_routes;
+        std::vector<Route> new_gen_routes;
+        std::vector<std::thread> workers;
+        Barrier* sync_point;
+        
         Population(int k, Nation *nation){ 
             K = k;
             N = nation->N;
 
-            std::mutex mutex;
-            std::vector<std::thread> mapThreads;
-
-            std::vector<Route>* routed_pointer = &routes;
-            std::vector<float>* probabilities_pointer = &probabilities;
+            new_gen_routes.reserve(K);
+            workers.reserve(num_workers);
+            sync_point = new Barrier(num_workers, [=](){
+                rank_all();
+            });
             
-            for (int i = 0; i< num_workers; i++){
-                // Use threads to generate the K initial routes contemporarely. 
-                // Assume numThreads == K.
-                mapThreads.emplace_back([&nation, routed_pointer, k, &mutex]() {
-                    std::vector<Route> random_routes;
-                    for (int j = 0; j < k/num_workers; j++){
-                        random_routes.push_back((*nation).random_route());
-                    } 
-                    std::lock_guard<std::mutex> lock(mutex);
-                    for (int j = 0; j < k/num_workers; j++){
-                        (*routed_pointer).push_back(random_routes[j]);
-                    }
-                });
-            }
-            probabilities = std::vector<float>(K, 1/K);
-                // Wait for all Map threads to finish
-            for (auto& thread : mapThreads) {
-                thread.join();
-            }
+            K = k;
+            N = nation->N;
 
-            rank_all();
-            best_route = routes[0]; 
+            for (int i = 0; i< K; i++){
+                Route random_route = (*nation).random_route();
+                // ensure the distance is computed. 
+                
+                current_gen_routes.push_back(random_route);
+                new_gen_routes.push_back(random_route);
+                probabilities.push_back(1/K);
+            } 
+
+            // Assign to the best route just the first random route, it will be updated very soon.
+            best_route.distance = current_gen_routes[0].compute_total_distance();
+            best_route.ordering = current_gen_routes[0].ordering;
+
+            std::cout<< "Initial best distance" << best_route.distance << "\n";
         }
 
-        // The distance computation step should be parallelized within the evolution phase and not in the ranking/reduce pahse. 
-        void rank_all() { 
-            float total_inverse_distance = 0;
-            for (int i = 0; i< K; i++){
-                total_inverse_distance += 1/routes[i].compute_total_distance(); // This also updates the distance value for the route object. 
-            }
-            
-            std::sort(routes.begin(), routes.begin() + K, [](Route a, Route b){ return a.distance > b.distance; });  //bizarre cpp lambda function syntax
-
-            // This part can be "parallelized" being moved at the beginning of the evolution step and made individual for each worker, 
-            // considering K different distributions to avoid self picking. 
-            for (int i = 0; i< K; i++){
-                probabilities[i] = (1/routes[i].distance)/total_inverse_distance;
-            }
-
-            picker = std::discrete_distribution<>(probabilities.begin(), probabilities.end());
-            return;
-        }
 
         Route pick_route(bool allow_self_pick = true){ 
             //@TODO implement prevention from a route picking itself as partner
             if (print_times && subtask_time_analysis){ 
                 utimer pick_route("Partner pickup: ");
-                return routes[picker(gen)]; 
+
+                return current_gen_routes[picker(gen)]; 
             } else { 
-                return routes[picker(gen)]; 
+                return current_gen_routes[picker(gen)]; 
             }
            
         }
 
-        void evolve_once(float mutation_rate = 0){ 
-            std::vector<std::thread> mapThreads;
-            std::mutex mutex;
-            for (int i = 0; i < num_workers; i++){
-                mapThreads.emplace_back([=, &mutex](){
-                    for (int j = 0; j < K/num_workers; j++) { 
-                        int crossing_point = rand()% N;//rand()%2 ==1 ? rand()% N : -1;
-                        // Randomly choose which PMX ordering to choose
-                        int route_idx = i*K/num_workers + j;
+        // Here we should do the more of the parallelization part. 
+        void evolve_with_threads(int worker_idx, int epochs, float mutation_rate, Route mate_route){ 
+            for(int e = 0; e < epochs; e++ ){ 
+                for (int j = 0; j < K/num_workers; j++) { 
+                    int crossing_point = rand()% N;// rand()%2 ==1 ? rand()% N : -1;
 
-                        mutex.lock();
-                        Route current_route = routes[route_idx];
-                        Route mate_route = pick_route();
-                        mutex.unlock();
+                    int route_idx = worker_idx*K/num_workers + j;
 
-                        Route new_route;
-                        
-                        if(rand() % 2 == 1){
-                            new_route = current_route.PMX(mate_route, crossing_point);
-                        } else { 
-                            new_route = mate_route.PMX(current_route, crossing_point);
-                        }
+                    mutex.lock();
+                    Route current_route = current_gen_routes[route_idx];
+                    mutex.unlock();
+                    //std::cout << "Rotta letta" << "\n";
 
-                        // Randomly check if the mutation should happen or not. 
-                        if ( mutation_rate != 0 && (rand() % int(1/mutation_rate)) == 1){ 
-                            if(print_times && subtask_time_analysis){
-                                utimer mutationTime("Mutation time:");
-                                new_route.mutate();
-                            } else { 
-                                new_route.mutate();
-                            }
-                        }
-
-                        routes[route_idx] = new_route;
+                    Route new_route;
+                    
+                    // Randomly choose which PMX ordering to choose
+                    if(rand() % 2 == 1){
+                        new_route = current_route.PMX(mate_route, crossing_point);
+                    } else { 
+                        new_route = mate_route.PMX(current_route, crossing_point);
                     }
-                });
+                    //std::cout << "PMX fatto" << "\n";
+
+                    // Randomly check if the mutation should happen or not. 
+                    if ( mutation_rate != 0 && (rand() % int(1/mutation_rate)) == 1){ 
+                        if(print_times && subtask_time_analysis){
+                            utimer mutationTime("Mutation time:");
+                            new_route.mutate();
+                        } else { 
+                            new_route.mutate();
+                        }
+                    }
+                    //std::cout << "MuTASSAO" << std::size(new_gen_routes) << "\n";
+                    float distance = new_route.compute_total_distance();
+                    std::cout << "distance :" << distance <<"\n";
+                    // Do we need mutex here? We an be sure that each worker will modify only a know subset of routes, 
+                    // without any overlapping with other workers. 
+                    // The subsequent presence of a barrier also avoid the scenario where some not evolved route 
+                    // would be picked for mating, hence we can treat routes as independet entities. 
+                    //std::cout << "mutex time" << "\n";
+                    mutex.lock();
+                    total_inverse_distance += 1/distance;
+                    //std::cout << "Dostamzoa aggiornata "<< distance << "\n";
+                    new_gen_routes[route_idx] = new_route;
+                    mutex.unlock();
+                    //std::cout << "Salvato" << "\n";
+
+
+                    // Hold a copy of the best route ever found, in case evoltuion cause a distance increasement.
+                    
+                    // We can avoid the comparison for each route saving a copy of the best distance from the prevoious epoch.
+                    // Try to do the comparion after the barrier, without parallelization, 
+                    // maybe it's cheaper than with mutexes. 
+                    // Or more, try a map reduce styleimplementation, only picking routes that surpass current best distance, 
+                    // wich cannot be modifeid in the meantime. Update best route with best one in the subset, after the barrier. 
+                
+                }
+                (*sync_point).wait();
             }
-            for (auto& thread : mapThreads) {
-                thread.join();
+        }
+
+        void rank_all(){
+            std::cout << "starting ranking" << "\n";
+            if(print_logs){ 
+                    std::cout << "Epoch." << 0 << ")  Best Distance:";
+                    std::cout << best_route.compute_total_distance() << '\n';
+                }
+
+            current_gen_routes = new_gen_routes;
+
+            std::cout << "Evolved distances: "<< new_gen_routes[0].distance << "\n";
+            std::cout << "Evolved distances: "<< current_gen_routes[0].distance << "\n";
+            
+            for (int j = 0; j < K; j++){
+                probabilities[j] = (1/probabilities[j])/total_inverse_distance;
+                current_gen_routes[j].ordering = new_gen_routes[j].ordering;
+                current_gen_routes[j].distance = new_gen_routes[j].distance;
+                if (current_gen_routes[j].distance < best_route.distance){ 
+                    best_route.distance = current_gen_routes[j].distance;
+                    best_route.ordering = current_gen_routes[j].ordering;
+                    std::cout << "New best: " << best_route.distance << "\n";
+                } 
+                std::cout << "Old best: " << best_route.distance << "\n";
             }
+
+            picker = std::discrete_distribution<>(probabilities.begin(), probabilities.end());
+            total_inverse_distance = 0;
         }
 
         void evolve(int epochs, float mutation_rate){ 
-            for(int i = 0; i < epochs; i++ ){ 
-                if (print_times){
-                    utimer ranking("Evolution (Breed + Mutate): ");
-                    evolve_once(mutation_rate);
-                } else { 
-                    evolve_once(mutation_rate);
-                }
-                if (print_times){
-                    utimer ranking("Ranking (Sort + Normalize): ");
-                    rank_all();
-                } else { 
-                    rank_all();
-                }
-
-                // Hold a copy of the best route ever found, in case evoltuion cause a distance increasement.
-                if (routes[0].compute_total_distance() < best_route.compute_total_distance()){ 
-                    best_route.distance = routes[0].distance;
-                    best_route.ordering = routes[0].ordering;
-                } 
-
-                if(print_logs){ 
-                    std::cout << "Epoch." << i << ")  Best Distance:";
-                    std::cout << best_route.compute_total_distance() << '\n';
-                }
+            int thread_id = 0;
+            while (thread_id < num_workers){ 
+                Route mate_route = pick_route();
+                workers.emplace_back(std::thread([=](){
+                    evolve_with_threads(thread_id, epochs, mutation_rate, mate_route);
+                    //barrier.wait();
+                }));
+                thread_id ++;
             }
+            // Call this once the barrier has ended
+
+            std::cout<< "Freeing threads" << std::size(workers) << "\n";
         }
+
+           
 };
 
 
@@ -386,7 +436,7 @@ int main (int argc, char* argv[]){
         std::time_t ct = std::time(0);
         //TODO include a log folder and a t= 
         std::stringstream sstm;
-        sstm << "LOGS/PAR/E"<< epochs << "G"<< genes_num << "_" << ct << ".txt";
+        sstm << "LOGS/PAR/E"<< epochs << "G"<< genes_num << "W" << num_workers << "_" << ct << ".txt";
         std::string logfile_path = sstm.str(); 
         std::cout << "Trying redirecting the logs to :" << logfile_path << "\n";
         std::freopen(logfile_path.c_str(),"w",stdout);
@@ -401,7 +451,7 @@ int main (int argc, char* argv[]){
         genome = new Population(genes_num, &nation);
     } else {
         genome = new Population(genes_num, &nation);
-    }    
+    } 
 
     if (print_times){
         utimer overall("Overall execution time: ");
@@ -410,9 +460,16 @@ int main (int argc, char* argv[]){
         (*genome).evolve(epochs, mutation_rate);
     }
 
+    for (auto& thread : (*genome).workers) {
+            //std::cout<< "Freeing threads" << "\n";
+            thread.join();
+        } 
+
+
     if(print_logs){ 
         (*genome).best_route.print_cities_ids();
     }
+    std::cout << "Best solution length: "<<(*genome).best_route.distance << "\n";
 }
 
 void lazyRouteTest(Nation nation){ 
