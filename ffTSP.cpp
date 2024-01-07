@@ -317,12 +317,17 @@ class Population {
 
         // Here we should do the more of the parallelization part. 
         void evolve_with_threads(int worker_idx, float mutation_rate){ 
-            for (int j = 0; j < K/num_workers; j++) { 
+            int first_target = worker_idx * int(K/num_workers) + (worker_idx < K % num_workers ? worker_idx : K % num_workers );
+            int last_target = first_target + int(K/num_workers) + (worker_idx < K % num_workers? 1 : 0);
+
+            //first = worker_idx * int(K/num_workers) + (worker_idx if worker_idx < K % num_workers else K % num_workers )
+            //last = first + int(K/num_workers) + ( 1 if worker_idx < K%num_workers else 0 )
+            for (int j = first_target; j < last_target; j++) { 
                 Route mate_route = pick_route();
                 int crossing_point = rand()% N;// rand()%2 ==1 ? rand()% N : -1;
 
-                int route_idx = worker_idx*K/num_workers + j;
-                Route current_route = current_gen_routes[route_idx];
+                // int route_idx = worker_idx*K/num_workers + j;
+                Route current_route = current_gen_routes[j];
                 //std::cout << "Rotta letta" << "\n";
 
                 Route new_route;
@@ -347,8 +352,9 @@ class Population {
 
                 //std::cout << "MuTASSAO" << std::size(new_gen_routes) << "\n";
                 float distance = new_route.compute_total_distance();
+
+                new_gen_routes[j] = new_route;
                 total_inverse_distance += 1/distance;
-                new_gen_routes[route_idx] = new_route;
             }
             
         }
@@ -430,7 +436,7 @@ int main (int argc, char* argv[]){
         std::time_t ct = std::time(0);
         //TODO include a log folder and a t= 
         std::stringstream sstm;
-        sstm << "LOGS/PAR/E"<< epochs << "G"<< genes_num << "W" << num_workers << "_" << ct << ".txt";
+        sstm << "LOGS/FF/E"<< epochs << "G"<< genes_num << "W" << num_workers << "_" << ct << ".txt";
         std::string logfile_path = sstm.str(); 
         std::cout << "Trying redirecting the logs to :" << logfile_path << "\n";
         std::freopen(logfile_path.c_str(),"w",stdout);
