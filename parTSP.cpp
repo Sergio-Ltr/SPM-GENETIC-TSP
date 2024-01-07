@@ -25,12 +25,15 @@ class Barrier {
         if (--count == 0) {
             // Last thread to arrive resets the barrier and calls the callback
             count = initial_count;
-            cv.notify_all();
+            
             if (callback) {
                 callback();
             }
+            cv.notify_all();
+            //std::cout << "==========================================" << "\n";
         } else {
             // Other threads wait
+            //std::cout << "Waiting for" << count << "more threads: " << "\n";
             cv.wait(lock, [this] { return count == initial_count; });
         }
     }
@@ -238,6 +241,8 @@ class Population {
         std::mt19937 gen = std::mt19937(rd());
         float total_inverse_distance = 0;
         int N;
+        std::mutex route_pick_mutex;
+        std::mutex route_update_mutex;
 
     public: 
         int K; // Number of genes, a.k.a. routes 
@@ -292,15 +297,20 @@ class Population {
 
         // Here we should do the more of the parallelization part. 
         void evolve_with_threads(int worker_idx, int epochs, float mutation_rate){ 
+            int first_target = worker_idx * int(K/num_workers) + (worker_idx < K % num_workers ? worker_idx : K % num_workers );
+            int last_target = first_target + int(K/num_workers) + (worker_idx < K % num_workers? 1 : 0);
+
             for(int e = 0; e < epochs; e++ ){ 
-                for (int j = 0; j < K/num_workers; j++) { 
+                for (int j = first_target; j < last_target; j++) { 
+                    //std::cout << worker_idx << "- Start working" << "\n";
                     Route mate_route = pick_route();
                     int crossing_point = rand()% N;// rand()%2 ==1 ? rand()% N : -1;
 
-                    int route_idx = worker_idx*K/num_workers + j;
-
-                    Route current_route = current_gen_routes[route_idx];
-                    //std::cout << "Rotta letta" << "\n";
+                    route_pick_mutex.lock();
+                    //std::cout << worker_idx <<"- Picking route" << "\n";
+                    Route current_route = current_gen_routes[j];
+                    //std::cout << "Route picked" << "\n";
+                    route_pick_mutex.unlock();
 
                     Route new_route;
                     
@@ -329,9 +339,13 @@ class Population {
                     // The subsequent presence of a barrier also avoid the scenario where some not evolved route 
                     // would be picked for mating, hence we can treat routes as independet entities. 
                     //std::cout << "mutex time" << "\n";
-                    new_gen_routes[route_idx] = new_route;
 
+                    std::lock_guard<std::mutex> guard(route_update_mutex);
+                    //std::cout <<worker_idx<< " - udpating route" << "\n";
+                    new_gen_routes[j] = new_route;
                     total_inverse_distance += 1/distance;
+                    //std::cout << "route updated" << "\n";
+
 
                     // Hold a copy of the best route ever found, in case evoltuion cause a distance increasement.
                     
@@ -341,12 +355,13 @@ class Population {
                     // Or more, try a map reduce styleimplementation, only picking routes that surpass current best distance, 
                     // wich cannot be modifeid in the meantime. Update best route with best one in the subset, after the barrier. 
                 }
+                //std::cout << worker_idx << " - Start waiting" << "\n";
                 (*sync_point).wait();
+                //std::cout << worker_idx << " - Waiting ended" << "\n";
             }
         }
 
         void rank_all(){
-
             if(print_logs){ 
                     std::cout << "Epoch." << 0 << ")  Best Distance:";
                     std::cout << best_route.compute_total_distance() << '\n';
@@ -378,11 +393,7 @@ class Population {
                 thread_id ++;
             }
             // Call this once the barrier has ended
-
-            
         }
-
-           
 };
 
 
