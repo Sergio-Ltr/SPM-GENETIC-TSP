@@ -17,6 +17,8 @@ int num_workers = 1;
 
 class Barrier {
   public:
+    int epoch = 0;
+    
     explicit Barrier(std::size_t count, std::function<void()> callback = nullptr)
         : initial_count(count), count(count), callback(callback) {}
 
@@ -29,8 +31,9 @@ class Barrier {
             if (callback) {
                 callback();
             }
+            epoch ++;
             cv.notify_all();
-            //std::cout << "==========================================" << "\n";
+            std::cout << "Epoch: " << epoch << "\n";
         } else {
             // Other threads wait
             //std::cout << "Waiting for" << count << "more threads: " << "\n";
@@ -243,6 +246,7 @@ class Population {
         int N;
         std::mutex route_pick_mutex;
         std::mutex route_update_mutex;
+        std::mutex work_done_mutex;
 
     public: 
         int K; // Number of genes, a.k.a. routes 
@@ -340,12 +344,13 @@ class Population {
                     // would be picked for mating, hence we can treat routes as independet entities. 
                     //std::cout << "mutex time" << "\n";
 
-                    std::lock_guard<std::mutex> guard(route_update_mutex);
+                    //std::lock_guard<std::mutex> guard(route_update_mutex);
                     //std::cout <<worker_idx<< " - udpating route" << "\n";
+                    route_update_mutex.lock();
                     new_gen_routes[j] = new_route;
                     total_inverse_distance += 1/distance;
                     //std::cout << "route updated" << "\n";
-
+                    route_update_mutex.unlock();
 
                     // Hold a copy of the best route ever found, in case evoltuion cause a distance increasement.
                     
@@ -355,9 +360,11 @@ class Population {
                     // Or more, try a map reduce styleimplementation, only picking routes that surpass current best distance, 
                     // wich cannot be modifeid in the meantime. Update best route with best one in the subset, after the barrier. 
                 }
+                //work_done_mutex.lock();
                 //std::cout << worker_idx << " - Start waiting" << "\n";
                 (*sync_point).wait();
                 //std::cout << worker_idx << " - Waiting ended" << "\n";
+                //work_done_mutex.unlock();
             }
         }
 
