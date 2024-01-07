@@ -136,72 +136,70 @@ class Route {
 };
 
 class Nation {       // The class
-  private:          // Access specifier
-    std::vector<City> cities;
+    private:          // Access specifier
+        std::vector<City> cities;
 
-  public:
-    int N;
+    public:
+        int N;
+        Nation(std::string filename) { // Constructor with parameters
+            std::ifstream myfile;
+            myfile.open("./NATIONS/" + filename);
+            std::string myline;
 
-  public:
-    Nation(std::string filename) { // Constructor with parameters
-        std::ifstream myfile;
-        myfile.open("./NATIONS/" + filename);
-        std::string myline;
+            int point_pos = filename.find(".tsp");
+            N = std::stoi(filename.replace(point_pos, 4, "").replace(0, 2, ""));
 
-        int point_pos = filename.find(".tsp");
-        N = std::stoi(filename.replace(point_pos, 4, "").replace(0, 2, ""));
+            if ( myfile.is_open() ) {
+                int skipline = 7;
+                while ( myfile ) { // equivalent to myfile.good()
+                    std::getline (myfile, myline);
+                    skipline --;
+                    if ( skipline < 0 && skipline > - (N + 1)) {
 
-        if ( myfile.is_open() ) {
-            int skipline = 7;
-            while ( myfile ) { // equivalent to myfile.good()
-                std::getline (myfile, myline);
-                skipline --;
-                if ( skipline < 0 && skipline > - (N + 1)) {
+                        std::string s;
+                        std::vector<std::string> raw_line;
+                        std::stringstream ss(myline);
 
-                    std::string s;
-                    std::vector<std::string> raw_line;
-                    std::stringstream ss(myline);
-
-                    int j = 0;
-                    while (std::getline(ss, s, ' ')) {
-                        // store token string in the vector
-                        raw_line.push_back(s);
-                        j ++;
-                    
-                        if (j % 3 == 0){
-                            addCity(City(std::stoi(raw_line[0]), std::stof(raw_line[1]), std::stof(raw_line[2])));
-                            raw_line.clear();
+                        int j = 0;
+                        while (std::getline(ss, s, ' ')) {
+                            // store token string in the vector
+                            raw_line.push_back(s);
+                            j ++;
+                        
+                            if (j % 3 == 0){
+                                addCity(City(std::stoi(raw_line[0]), std::stof(raw_line[1]), std::stof(raw_line[2])));
+                                raw_line.clear();
+                            }
                         }
                     }
                 }
+            } else {
+                std::cout << "Couldn't open file\n";
             }
-        } else {
-            std::cout << "Couldn't open file\n";
         }
-    }
 
-    void addCity(City city) { 
-        cities.push_back(city);
-    }
-
-    City get_city(int id){ 
-        return cities[id];
-    }
-
-    void print_cities_ids () { 
-        for(unsigned int i = 0; i < N; i++){
-            std::cout << cities[i].id << '\n';
+        void addCity(City city) { 
+            cities.push_back(city);
         }
-    }
 
-    Route random_route() { 
-        if(print_times && subtask_time_analysis){
-            utimer random_route_generation("Random route generation: ");
+        City get_city(int id){ 
+            return cities[id];
+        }
+
+        void print_cities_ids () { 
+            for(unsigned int i = 0; i < N; i++){
+                std::cout << cities[i].id << '\n';
+            }
+        }
+
+        Route random_route() { 
+            if(print_times && subtask_time_analysis){
+                utimer random_route_generation("Random route generation: ");
+                return Route(N, &cities);
+            }
+
             return Route(N, &cities);
         }
-
-        return Route(N, &cities);
-    }
 };
 
 //The emitter of the farm, it computes the merge phase
@@ -258,9 +256,7 @@ class worker_SCMF : public ff_node{
         }
 
         void* svc(void* inp){
-            std::cout << "Working" << num_workers <<"\n";
             work(worker_idx, mutation_rate);
-            std::cout << "Work done" << "\n";
             ff_send_out(GO_ON);
             return GO_ON;
         }
@@ -274,9 +270,6 @@ class Population {
         std::mt19937 gen = std::mt19937(rd());
         float total_inverse_distance = 0;
         int N;
-
-        std::mutex mutex;
-
 
     public: 
         int K; // Number of genes, a.k.a. routes 
@@ -304,7 +297,9 @@ class Population {
             best_route.distance = current_gen_routes[0].compute_total_distance();
             best_route.ordering = current_gen_routes[0].ordering;
 
-            std::cout<< "Initial best distance" << best_route.distance << "\n";
+            picker = std::discrete_distribution<>(probabilities.begin(), probabilities.end());
+
+            std::cout<< "Initial best distance: " << best_route.distance << "\n";
         }
 
 
@@ -322,7 +317,6 @@ class Population {
 
         // Here we should do the more of the parallelization part. 
         void evolve_with_threads(int worker_idx, float mutation_rate){ 
-            std::cout << "Evolution started" << "\n";
             for (int j = 0; j < K/num_workers; j++) { 
                 Route mate_route = pick_route();
                 int crossing_point = rand()% N;// rand()%2 ==1 ? rand()% N : -1;
@@ -353,7 +347,6 @@ class Population {
 
                 //std::cout << "MuTASSAO" << std::size(new_gen_routes) << "\n";
                 float distance = new_route.compute_total_distance();
-                std::cout << "distance :" << distance <<"\n";
                 total_inverse_distance += 1/distance;
                 new_gen_routes[route_idx] = new_route;
             }
@@ -361,64 +354,45 @@ class Population {
         }
 
         void rank_all(){
-            std::cout << "starting ranking" << "\n";
             if(print_logs){ 
-                    std::cout << "Epoch." << 0 << ")  Best Distance:";
-                    std::cout << best_route.compute_total_distance() << '\n';
-                }
-
-            current_gen_routes = new_gen_routes;
-
-            std::cout << "Evolved distances: "<< new_gen_routes[0].distance << "\n";
-            std::cout << "Evolved distances: "<< current_gen_routes[0].distance << "\n";
+                std::cout << "Epoch." << 0 << ")  Best Distance:";
+                std::cout << best_route.compute_total_distance() << '\n';
+            }
             
             for (int j = 0; j < K; j++){  
                 probabilities[j] = (1/probabilities[j])/total_inverse_distance;
                 current_gen_routes[j].ordering = new_gen_routes[j].ordering;
                 current_gen_routes[j].distance = new_gen_routes[j].distance;
+
                 if (current_gen_routes[j].distance < best_route.distance){ 
                     best_route.distance = current_gen_routes[j].distance;
                     best_route.ordering = current_gen_routes[j].ordering;
-                    std::cout << "New best: " << best_route.distance << "\n";
-                } 
-                //std::cout << "Old best: " << best_route.distance << "\n";
+                }
             }
 
             picker = std::discrete_distribution<>(probabilities.begin(), probabilities.end());
             total_inverse_distance = 0;
         }
 
-        
-
         void evolve(int epochs, float mutation_rate){ 
             merge_em e(epochs, num_workers, [=](){rank_all();});
             std::vector<std::unique_ptr<ff_node>> workers_pool;
 
             for(int i = 0; i < num_workers; i++){
-                std::cout << i << "\n";
                 workers_pool.push_back(make_unique<worker_SCMF>(i, mutation_rate, [=](int i, float mutation_rate){evolve_with_threads(i, mutation_rate);}));
             }
 
-
-            std::cout << "Starting fast flow parallelization" << "\n";
             ff_Farm<> farm(std::move(workers_pool));
-            std::cout << "Workers created" << "\n";
+            
             farm.add_emitter(e); //Same as a barrier with a callback.
-            std::cout << "Emitter created" << "\n";
+            
             farm.remove_collector();
-            std::cout << "Collector removed" << "\n";
             farm.wrap_around();
-            std::cout << "Starting farm" << "\n";
             farm.run_and_wait_end();
-            std::cout << "Ending farm" << "\n";
+
             rank_all();
         }
-
-           
 };
-
-
-
 
 int main (int argc, char* argv[]){
     // This code allows to read the .tsp files skipping the fixed-lenght headers (7 lines).

@@ -221,9 +221,11 @@ class Population {
                 probabilities.push_back(1/K);
             } 
 
-            rank_all();
-            best_route = routes[0];
+            best_route.distance = routes[0].compute_total_distance();
+            best_route.ordering = routes[0].ordering;
 
+            picker = std::discrete_distribution<>(probabilities.begin(), probabilities.end());
+            std::cout<< "Initial best distance: " << best_route.distance << "\n";
         }
 
         void rank_all() { 
@@ -232,10 +234,14 @@ class Population {
                 total_inverse_distance += 1/routes[i].compute_total_distance(); // This also updates the distance value for the route object. 
             }
             
-            std::sort(routes.begin(), routes.begin() + K, [](Route a, Route b){ return a.distance > b.distance; });  //bizarre cpp lambda function syntax
+            // std::sort(routes.begin(), routes.begin() + K, [](Route a, Route b){ return a.distance > b.distance; });  //bizarre cpp lambda function syntax
 
             for (int i = 0; i< K; i++){
                 probabilities[i] = (1/routes[i].distance)/total_inverse_distance;
+                if (routes[i].distance < best_route.distance){ 
+                    best_route.distance = routes[i].distance;
+                    best_route.ordering = routes[i].ordering;
+                } 
             }
 
             picker = std::discrete_distribution<>(probabilities.begin(), probabilities.end());
@@ -289,17 +295,11 @@ class Population {
                     rank_all();
                 }
 
-                // Hold a copy of the best route ever found, in case evoltuion cause a distance increasement.
-                if (routes[0].compute_total_distance() < best_route.compute_total_distance()){ 
-                    best_route.distance = routes[0].distance;
-                    best_route.ordering = routes[0].ordering;
-                } 
-
                 if(print_logs){ 
                     std::cout << "Epoch." << i << ")  Best Distance:";
-                    std::cout << best_route.compute_total_distance() << '\n';
+                    std::cout << best_route.distance << '\n';
                 }
-        }
+            }
         }
 };
 
@@ -364,26 +364,6 @@ int main (int argc, char* argv[]){
     if(print_logs){ 
         (*genome).best_route.print_cities_ids();
     }
-}
-
-void lazyRouteTest(Nation nation){ 
-    nation.print_cities_ids();
-
-    std::cout << nation.N << '\n';
-    std::cout << nation.get_city(1).distance(nation.get_city(9))  << '\n';
-    std::cout << nation.random_route().compute_total_distance() << '\n';
-
-    Route route1 =  nation.random_route();
-    Route route2 =  nation.random_route();
-    
-    route1.print_cities_ids();
-    std::cout << "++++++++++++++++++++++++++++++++++++++++" << '\n';
-    route2.print_cities_ids();
-    std::cout << "========================================" << '\n';
-
-    Route child = (route2.PMX(route1, 8));
-    child.print_cities_ids();
-    std::cout << child.ordering[0] <<'\n';
 }
 
 void time_tests(){ 

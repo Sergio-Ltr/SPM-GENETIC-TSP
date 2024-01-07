@@ -239,9 +239,6 @@ class Population {
         float total_inverse_distance = 0;
         int N;
 
-        std::mutex mutex;
-
-
     public: 
         int K; // Number of genes, a.k.a. routes 
         Route best_route;
@@ -276,7 +273,6 @@ class Population {
             best_route.distance = current_gen_routes[0].compute_total_distance();
             best_route.ordering = current_gen_routes[0].ordering;
 
-
             picker = std::discrete_distribution<>(probabilities.begin(), probabilities.end());
             std::cout<< "Initial best distance: " << best_route.distance << "\n";
         }
@@ -303,9 +299,7 @@ class Population {
 
                     int route_idx = worker_idx*K/num_workers + j;
 
-                    //mutex.lock();
                     Route current_route = current_gen_routes[route_idx];
-                    //mutex.unlock();
                     //std::cout << "Rotta letta" << "\n";
 
                     Route new_route;
@@ -337,10 +331,7 @@ class Population {
                     //std::cout << "mutex time" << "\n";
                     new_gen_routes[route_idx] = new_route;
 
-                    //mutex.lock();
                     total_inverse_distance += 1/distance;
-                    //mutex.unlock();
-
 
                     // Hold a copy of the best route ever found, in case evoltuion cause a distance increasement.
                     
@@ -349,7 +340,6 @@ class Population {
                     // maybe it's cheaper than with mutexes. 
                     // Or more, try a map reduce styleimplementation, only picking routes that surpass current best distance, 
                     // wich cannot be modifeid in the meantime. Update best route with best one in the subset, after the barrier. 
-                
                 }
                 (*sync_point).wait();
             }
