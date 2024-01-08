@@ -17,7 +17,7 @@ int num_workers = 1;
 
 class Barrier {
   public:
-    int epoch = 0;
+    int epoch = -1;
     
     explicit Barrier(std::size_t count, std::function<void()> callback = nullptr)
         : initial_count(count), count(count), callback(callback) {}
@@ -27,13 +27,14 @@ class Barrier {
         if (--count == 0) {
             // Last thread to arrive resets the barrier and calls the callback
             count = initial_count;
-            
-            if (callback) {
+            if (callback && epoch != -1) {
                 callback();
             }
             epoch ++;
             cv.notify_all();
-            std::cout << "Epoch: " << epoch << "\n";
+            if(print_logs){
+                 std::cout << "Epoch: " << epoch << "\n";
+            }
         } else {
             // Other threads wait
             //std::cout << "Waiting for" << count << "more threads: " << "\n";
@@ -243,10 +244,13 @@ class Population {
         std::random_device rd;
         std::mt19937 gen = std::mt19937(rd());
         float total_inverse_distance = 0;
-        int N;
+
         std::mutex route_pick_mutex;
         std::mutex route_update_mutex;
         std::mutex work_done_mutex;
+
+        int N;
+        Nation* country;
 
     public: 
         int K; // Number of genes, a.k.a. routes 
@@ -259,31 +263,17 @@ class Population {
         Population(int k, Nation *nation){ 
             K = k;
             N = nation->N;
+            country = nation;
 
-            new_gen_routes.reserve(K);
-            workers.reserve(num_workers);
             sync_point = new Barrier(num_workers, [=](){
                 rank_all();
             });
             
-            K = k;
-            N = nation->N;
-
-            for (int i = 0; i< K; i++){
-                Route random_route = (*nation).random_route();
-                // ensure the distance is computed. 
-                
-                current_gen_routes.push_back(random_route);
-                new_gen_routes.push_back(random_route);
-                probabilities.push_back(1/K);
-            } 
-
-            // Assign to the best route just the first random route, it will be updated very soon.
-            best_route.distance = current_gen_routes[0].compute_total_distance();
-            best_route.ordering = current_gen_routes[0].ordering;
+            current_gen_routes = std::vector<Route>(K);
+            new_gen_routes= std::vector<Route>(K);
+            probabilities = std::vector<float>(K, 1/K);
 
             picker = std::discrete_distribution<>(probabilities.begin(), probabilities.end());
-            std::cout<< "Initial best distance: " << best_route.distance << "\n";
         }
 
 
@@ -300,9 +290,23 @@ class Population {
         }
 
         // Here we should do the more of the parallelization part. 
-        void evolve_with_threads(int worker_idx, int epochs, float mutation_rate){ 
+        void initialize_and_evolve_with_threads(int worker_idx, int epochs, float mutation_rate){ 
             int first_target = worker_idx * int(K/num_workers) + (worker_idx < K % num_workers ? worker_idx : K % num_workers );
             int last_target = first_target + int(K/num_workers) + (worker_idx < K % num_workers? 1 : 0);
+
+            for (int j = first_target; j < last_target; j++) { 
+               
+                route_update_mutex.lock();
+                Route random_route =  (*country).random_route();
+                current_gen_routes[j] = random_route;
+                route_update_mutex.unlock();
+                
+                if(j==0){
+                    best_route.distance = current_gen_routes[0].compute_total_distance();
+                    best_route.ordering = current_gen_routes[0].ordering;
+                }
+            }
+            (*sync_point).wait();
 
             for(int e = 0; e < epochs; e++ ){ 
                 for (int j = first_target; j < last_target; j++) { 
@@ -394,7 +398,7 @@ class Population {
             int thread_id = 0;
             while (thread_id < num_workers){ 
                 workers.emplace_back(std::thread([=](){
-                    evolve_with_threads(thread_id, epochs, mutation_rate);
+                    initialize_and_evolve_with_threads(thread_id, epochs, mutation_rate);
                     //barrier.wait();
                 }));
                 thread_id ++;
@@ -450,7 +454,7 @@ int main (int argc, char* argv[]){
 
     Population* genome;
 
-    if(print_times){
+    if(print_times & subtask_time_analysis){
         utimer initialization("Random routes initialization");
         genome = new Population(genes_num, &nation);
     } else {
