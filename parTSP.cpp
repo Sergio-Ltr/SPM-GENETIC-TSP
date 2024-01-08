@@ -245,9 +245,7 @@ class Population {
         std::mt19937 gen = std::mt19937(rd());
         float total_inverse_distance = 0;
 
-        std::mutex route_pick_mutex;
-        std::mutex route_update_mutex;
-        std::mutex work_done_mutex;
+        std::mutex mutex;
 
         int N;
         Nation* country;
@@ -296,14 +294,15 @@ class Population {
 
             for (int j = first_target; j < last_target; j++) { 
                
-                route_update_mutex.lock();
-                Route random_route =  (*country).random_route();
-                current_gen_routes[j] = random_route;
-                route_update_mutex.unlock();
+                //route_update_mutex.lock();
+                //Route random_route =  
+                current_gen_routes[j] = (*country).random_route();
+                //route_update_mutex.unlock();
                 
                 if(j==0){
                     best_route.distance = current_gen_routes[0].compute_total_distance();
                     best_route.ordering = current_gen_routes[0].ordering;
+                    std::cout<< "Initial best distance: " << best_route.distance << "\n";
                 }
             }
             (*sync_point).wait();
@@ -314,11 +313,9 @@ class Population {
                     Route mate_route = pick_route();
                     int crossing_point = rand()% N;// rand()%2 ==1 ? rand()% N : -1;
 
-                    route_pick_mutex.lock();
                     //std::cout << worker_idx <<"- Picking route" << "\n";
                     Route current_route = current_gen_routes[j];
                     //std::cout << "Route picked" << "\n";
-                    route_pick_mutex.unlock();
 
                     Route new_route;
                     
@@ -339,36 +336,16 @@ class Population {
                             new_route.mutate();
                         }
                     }
-                    //std::cout << "MuTASSAO" << std::size(new_gen_routes) << "\n";
+
                     float distance = new_route.compute_total_distance();
-                    
-                    // Do we need mutex here? We an be sure that each worker will modify only a know subset of routes, 
-                    // without any overlapping with other workers. 
-                    // The subsequent presence of a barrier also avoid the scenario where some not evolved route 
-                    // would be picked for mating, hence we can treat routes as independet entities. 
-                    //std::cout << "mutex time" << "\n";
 
-                    //std::lock_guard<std::mutex> guard(route_update_mutex);
-                    //std::cout <<worker_idx<< " - udpating route" << "\n";
-                    route_update_mutex.lock();
                     new_gen_routes[j] = new_route;
-                    total_inverse_distance += 1/distance;
-                    //std::cout << "route updated" << "\n";
-                    route_update_mutex.unlock();
 
-                    // Hold a copy of the best route ever found, in case evoltuion cause a distance increasement.
-                    
-                    // We can avoid the comparison for each route saving a copy of the best distance from the prevoious epoch.
-                    // Try to do the comparion after the barrier, without parallelization, 
-                    // maybe it's cheaper than with mutexes. 
-                    // Or more, try a map reduce styleimplementation, only picking routes that surpass current best distance, 
-                    // wich cannot be modifeid in the meantime. Update best route with best one in the subset, after the barrier. 
+                    mutex.lock();
+                    total_inverse_distance += 1/distance;
+                    mutex.unlock();
                 }
-                //work_done_mutex.lock();
-                //std::cout << worker_idx << " - Start waiting" << "\n";
                 (*sync_point).wait();
-                //std::cout << worker_idx << " - Waiting ended" << "\n";
-                //work_done_mutex.unlock();
             }
         }
 
