@@ -28,13 +28,15 @@ class Barrier {
             // Last thread to arrive resets the barrier and calls the callback
             count = initial_count;
             if (callback && epoch != -1) {
+                lock.unlock();
                 callback();
             }
+            //cv.notify_all();
             epoch ++;
-            cv.notify_all();
             if(print_logs){
                  std::cout << "Epoch: " << epoch << "\n";
             }
+            cv.notify_all();
         } else {
             // Other threads wait
             //std::cout << "Waiting for" << count << "more threads: " << "\n";
@@ -302,7 +304,10 @@ class Population {
                 if(j==0){
                     best_route.distance = current_gen_routes[0].compute_total_distance();
                     best_route.ordering = current_gen_routes[0].ordering;
-                    std::cout<< "Initial best distance: " << best_route.distance << "\n";
+
+                    if(print_logs){
+                        std::cout<< "Initial best distance: " << best_route.distance << "\n";
+                    }
                 }
             }
             (*sync_point).wait();
@@ -384,6 +389,37 @@ class Population {
         }
 };
 
+void generate_chart_logs(Nation nation, int epochs, int genes_num, float mutation_rate, std::string filename, int min_w, int max_w, int repetitions = 5){ 
+    std::stringstream sstm;
+        sstm << "LOGS/PAR/CHART-E"<< epochs << "G"<< genes_num << ".txt";
+        std::string logfile_path = sstm.str(); 
+        std::cout << "Trying redirecting the logs to :" << logfile_path << "\n";
+        std::freopen(logfile_path.c_str(),"w",stdout);
+
+        std::cout << filename << "\n";
+        std::cout << "Best distance, Workers, Repetitions, Time," << "\n";
+
+        for(int i = min_w; i < max_w; i++ ){
+            for(int j = 0; j < repetitions; j++){ // Repete so that the mean can then be computed.
+                std::stringstream specification_stream;
+                specification_stream << i << " , "<< j << ",";
+                std::string data_row = specification_stream.str(); 
+
+                utimer overall(data_row);
+
+                num_workers = i;
+                Population* genome = new Population(genes_num, &nation);
+                (*genome).evolve(epochs, mutation_rate);
+                for (auto& thread : (*genome).workers) {
+                    //std::cout<< "Freeing threads" << "\n";
+                    thread.join();
+                }
+
+                std::cout <<(*genome).best_route.distance << ",";
+            }
+        }
+}
+
 
 int main (int argc, char* argv[]){
     // This code allows to read the .tsp files skipping the fixed-lenght headers (7 lines).
@@ -411,13 +447,15 @@ int main (int argc, char* argv[]){
     print_logs = verbosity > 0; 
     print_times = verbosity == -1 || verbosity == 1;
 
+    bool chart_mode = num_workers == 0;
+
     // Last param to decide wether to save logs on a file or just use the terminal. 
     bool redirect_logs = argc > 7; 
     if (redirect_logs && atoi(argv[7]) == -1){ 
         subtask_time_analysis = true;
     }
 
-    if (redirect_logs){
+    if (redirect_logs && !chart_mode){
         std::time_t ct = std::time(0);
         //TODO include a log folder and a t= 
         std::stringstream sstm;
@@ -429,23 +467,23 @@ int main (int argc, char* argv[]){
 
     Nation nation = Nation(filename); 
 
-    Population* genome;
+    if (chart_mode){
+        generate_chart_logs(nation, epochs, genes_num, mutation_rate, filename, 0, std::thread::hardware_concurrency(), 5);
+        return 0;
+    }
 
-    if(print_times & subtask_time_analysis){
-        utimer initialization("Random routes initialization");
-        genome = new Population(genes_num, &nation);
-    } else {
-        genome = new Population(genes_num, &nation);
-    } 
+    Population* genome;
 
     if (print_times){
         utimer overall("Overall execution time: ");
+        genome = new Population(genes_num, &nation);
         (*genome).evolve(epochs, mutation_rate);
         for (auto& thread : (*genome).workers) {
             //std::cout<< "Freeing threads" << "\n";
             thread.join();
         } 
     } else { 
+         genome = new Population(genes_num, &nation);
         (*genome).evolve(epochs, mutation_rate);
         for (auto& thread : (*genome).workers) {
             //std::cout<< "Freeing threads" << "\n";

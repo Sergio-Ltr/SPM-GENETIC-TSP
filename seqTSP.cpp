@@ -282,20 +282,20 @@ class Population {
 
         void evolve(int epochs, float mutation_rate){ 
             for(int i = 0; i < epochs; i++ ){ 
-                if (print_times){
+                if (print_times && subtask_time_analysis){
                     utimer ranking("Evolution (Breed + Mutate): ");
                     evolve_once(mutation_rate);
                 } else { 
                     evolve_once(mutation_rate);
                 }
-                if (print_times){
+                if (print_times && subtask_time_analysis){
                     utimer ranking("Ranking (Sort + Normalize): ");
                     rank_all();
                 } else { 
                     rank_all();
                 }
 
-                if(print_logs){ 
+                if(!print_logs ){ 
                     std::cout << "Epoch." << i << ")  Best Distance:";
                     std::cout << best_route.distance << '\n';
                 }
@@ -364,11 +364,5 @@ int main (int argc, char* argv[]){
     if(print_logs){ 
         (*genome).best_route.print_cities_ids();
     }
-}
-
-void time_tests(){ 
-    if (print_times ){ 
-        utimer evolution("Single evolution loop (including ranking):");
-        // TODO evakyate the single tasks here.
-    }
+    std::cout << "Best solution length: "<<(*genome).best_route.distance << "\n";
 }
