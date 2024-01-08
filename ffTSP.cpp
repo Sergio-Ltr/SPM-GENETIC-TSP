@@ -284,14 +284,11 @@ class Population {
             K = k;
             N = nation->N;
 
-            for (int i = 0; i< K; i++){
-                Route random_route = (*nation).random_route();
-                // ensure the distance is computed. 
-                
-                current_gen_routes.push_back(random_route);
-                new_gen_routes.push_back(random_route);
-                probabilities.push_back(1/K);
-            } 
+            current_gen_routes = std::vector<Route>(K);
+            new_gen_routes= std::vector<Route>(K);
+            probabilities = std::vector<float>(K, 1/K);
+
+            parallel_for(0, K, [=](unsigned int i){current_gen_routes[i] = (*nation).random_route();}, num_workers);
 
             // Assign to the best route just the first random route, it will be updated very soon.
             best_route.distance = current_gen_routes[0].compute_total_distance();
